@@ -31,8 +31,7 @@ locals {
   vpc_id_resolved   = local.create_networking ? aws_vpc.tfe[0].id : var.vpc_id
   subnet_id_resolved = local.create_networking ? aws_subnet.tfe_public[0].id : var.subnet_id
 
-  # Use the Elastic IP with nip.io so TFE has a resolvable HTTPS hostname.
-  tfe_hostname = "${aws_eip.tfe.public_ip}.nip.io"
+  tfe_hostname = aws_eip.tfe.public_ip
 
   # Apply a consistent tag set to all resources.
   common_tags = merge({

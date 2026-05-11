@@ -71,7 +71,7 @@ variable "subnet_cidr" {
 variable "instance_type" {
   # EC2 instance size; TFE needs at least 4 vCPU and 8 GB RAM.
   type    = string
-  default = "m5.xlarge"
+  default = "m5.large"
 }
 
 variable "root_volume_size_gb" {

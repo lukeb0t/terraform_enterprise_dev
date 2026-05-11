@@ -61,7 +61,7 @@ subjectAltName = @alt_names
 [alt_names]
 OPENSSLCFG
 
-echo "DNS.1 = $TFE_HOSTNAME" >> /tmp/tfe-openssl.cnf
+echo "IP.1 = $TFE_HOSTNAME" >> /tmp/tfe-openssl.cnf
 
 openssl req -x509 -newkey rsa:4096 -nodes \
   -keyout /etc/tfe-tls/key.pem \

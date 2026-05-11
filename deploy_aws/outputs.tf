@@ -4,7 +4,7 @@ output "tfe_url" {
 }
 
 output "tfe_hostname" {
-  description = "Hostname assigned to Terraform Enterprise via nip.io."
+  description = "Public IP (Elastic IP) of the Terraform Enterprise instance."
   value       = local.tfe_hostname
 }
 
