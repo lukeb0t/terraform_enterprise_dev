@@ -87,6 +87,35 @@ Internet ---------> |  Elastic IP                 |
 | `vpc_id` | Resolved VPC ID. |
 | `subnet_id` | Resolved subnet ID. |
 
+## Bring your own networking
+
+By default the module creates a new VPC and public subnet. To deploy into an existing network, set `create_networking = false` and supply your own IDs:
+
+```hcl
+create_networking = false
+vpc_id            = "vpc-0abc123"
+subnet_id         = "subnet-0def456"
+```
+
+The subnet must be public (or have a route to the internet via NAT) so the EC2 instance can reach the TFE image registry and AWS SSM endpoints. The module attaches an Elastic IP to the instance regardless of which networking path is used.
+
+## Bring your own certificate
+
+By default the module generates a self-signed certificate on first boot using the instance's Elastic IP as the Subject Alternative Name. To use a certificate from your own CA instead, supply all three `tls_*` variables:
+
+```hcl
+tfe_hostname    = "tfe.example.com"   # hostname the cert was issued for
+tls_cert_pem    = file("tfe.crt")     # PEM certificate (leaf + intermediates)
+tls_key_pem     = file("tfe.key")     # PEM private key
+tls_ca_bundle_pem = file("ca.crt")   # PEM CA bundle (used by TFE agent containers)
+```
+
+> All three `tls_*` variables must be set together — supplying only some of them has no effect and the module will fall back to a self-signed cert.
+
+The certificate material is stored in AWS SSM Parameter Store as `SecureString` values at apply time. The instance fetches them over SSM at boot — this avoids the 16 KB EC2 user-data size limit that would be hit by embedding PEM content directly.
+
+If your cert is issued for a domain name rather than a bare IP, set `tfe_hostname` to that domain and point its DNS A record to the `public_ip` output after apply.
+
 ## Retrieve tokens from SSM
 
 ```bash
