@@ -48,11 +48,11 @@ Internet ---------> |  Elastic IP                 |
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `cluster_name` | `string` | n/a | Name prefix for all resources. |
+| `cluster_name` | `string` | **required** | Name prefix for all resources. |
+| `tfe_license` | `string` | **required** | TFE Enterprise license string. |
+| `admin_email` | `string` | **required** | Email for the initial TFE admin user. |
+| `admin_password` | `string` | **required** | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
 | `tfe_version` | `string` | `"v202505-1"` | TFE Docker image tag to deploy. |
-| `tfe_license` | `string` | n/a | TFE Enterprise license string. |
-| `admin_email` | `string` | n/a | Email for the initial TFE admin user. |
-| `admin_password` | `string` | n/a | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
 | `org_name` | `string` | `"hashicorp-demo"` | TFE organization created during bootstrap. |
 | `create_networking` | `bool` | `true` | Create a VPC/subnet. Set `false` when reusing an existing network. |
 | `vpc_id` | `string` | `null` | Existing VPC ID; required when `create_networking = false`. |
