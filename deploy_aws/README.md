@@ -46,30 +46,30 @@ Internet ---------> |  Elastic IP                 |
 
 ## Inputs
 
-| Name | Type | Default | Description |
-| --- | --- | --- | --- |
-| `cluster_name` | `string` | **required** | Name prefix for all resources. |
-| `tfe_license` | `string` | **required** | TFE Enterprise license string. |
-| `admin_email` | `string` | **required** | Email for the initial TFE admin user. |
-| `admin_password` | `string` | **required** | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
-| `tfe_version` | `string` | `"v202505-1"` | TFE Docker image tag to deploy. |
-| `org_name` | `string` | `"hashicorp-demo"` | TFE organization created during bootstrap. |
-| `create_networking` | `bool` | `true` | Create a VPC/subnet. Set `false` when reusing an existing network. |
-| `vpc_id` | `string` | `null` | Existing VPC ID; required when `create_networking = false`. |
-| `subnet_id` | `string` | `null` | Existing subnet ID; required when `create_networking = false`. |
-| `vpc_cidr` | `string` | `"10.101.0.0/16"` | CIDR for the new VPC. |
-| `subnet_cidr` | `string` | `"10.101.1.0/24"` | CIDR for the new public subnet. |
-| `instance_type` | `string` | `"m5.large"` | EC2 instance size. TFE requires at least 4 vCPU / 8 GB RAM. |
-| `root_volume_size_gb` | `number` | `200` | Root EBS volume size in GiB (holds TFE application data). |
-| `key_pair_name` | `string` | `null` | EC2 key pair for SSH. Also requires `ssh_ingress_cidr_blocks`. |
-| `allowed_ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | CIDRs allowed to reach TFE on ports 80/443. |
-| `ssh_ingress_cidr_blocks` | `list(string)` | `[]` | CIDRs allowed SSH (port 22). Empty = SSM-only access. |
-| `ssm_path_prefix` | `string` | `"/tfe"` | SSM Parameter Store prefix for bootstrap tokens. |
-| `tfe_hostname` | `string` | EIP | Overrides the hostname used for TLS and TFE URLs. Set this when providing a cert issued for a domain name. |
-| `tls_cert_pem` | `string` | `null` | PEM-encoded TLS certificate. All three `tls_*` vars must be set together to skip self-signed generation. |
-| `tls_key_pem` | `string` | `null` | PEM-encoded TLS private key. |
-| `tls_ca_bundle_pem` | `string` | `null` | PEM-encoded CA bundle. Should include the signing CA so TFE and agent containers trust the certificate. |
-| `tags` | `map(string)` | `{}` | Extra AWS tags applied to all resources. |
+| Name | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `cluster_name` | `string` | yes | — | Name prefix for all resources. |
+| `tfe_license` | `string` | yes | — | TFE Enterprise license string. |
+| `admin_email` | `string` | yes | — | Email for the initial TFE admin user. |
+| `admin_password` | `string` | yes | — | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
+| `tfe_version` | `string` | no | `"v202505-1"` | TFE Docker image tag to deploy. |
+| `org_name` | `string` | no | `"hashicorp-demo"` | TFE organization created during bootstrap. |
+| `create_networking` | `bool` | no | `true` | Create a VPC/subnet. Set `false` when reusing an existing network. |
+| `vpc_id` | `string` | no | `null` | Existing VPC ID; required when `create_networking = false`. |
+| `subnet_id` | `string` | no | `null` | Existing subnet ID; required when `create_networking = false`. |
+| `vpc_cidr` | `string` | no | `"10.101.0.0/16"` | CIDR for the new VPC. |
+| `subnet_cidr` | `string` | no | `"10.101.1.0/24"` | CIDR for the new public subnet. |
+| `instance_type` | `string` | no | `"m5.large"` | EC2 instance size. TFE requires at least 4 vCPU / 8 GB RAM. |
+| `root_volume_size_gb` | `number` | no | `200` | Root EBS volume size in GiB (holds TFE application data). |
+| `key_pair_name` | `string` | no | `null` | EC2 key pair for SSH. Also requires `ssh_ingress_cidr_blocks`. |
+| `allowed_ingress_cidrs` | `list(string)` | no | `["0.0.0.0/0"]` | CIDRs allowed to reach TFE on ports 80/443. |
+| `ssh_ingress_cidr_blocks` | `list(string)` | no | `[]` | CIDRs allowed SSH (port 22). Empty = SSM-only access. |
+| `ssm_path_prefix` | `string` | no | `"/tfe"` | SSM Parameter Store prefix for bootstrap tokens. |
+| `tfe_hostname` | `string` | no | EIP | Overrides the hostname used for TLS and TFE URLs. Set this when providing a cert issued for a domain name. |
+| `tls_cert_pem` | `string` | no | `null` | PEM-encoded TLS certificate. All three `tls_*` vars must be set together to skip self-signed generation. |
+| `tls_key_pem` | `string` | no | `null` | PEM-encoded TLS private key. |
+| `tls_ca_bundle_pem` | `string` | no | `null` | PEM-encoded CA bundle. Should include the signing CA so TFE and agent containers trust the certificate. |
+| `tags` | `map(string)` | no | `{}` | Extra AWS tags applied to all resources. |
 
 ## Outputs
 
