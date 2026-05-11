@@ -1,0 +1,9 @@
+# Terraform secrets — never commit
+*.tfvars
+*.tfvars.json
+
+# Terraform state — contains sensitive outputs
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl

@@ -79,28 +79,6 @@ mkdir -p /var/lib/tfe
 log "Pulling TFE image $TFE_VERSION..."
 docker pull "images.releases.hashicorp.com/hashicorp/terraform-enterprise:$TFE_VERSION"
 
-# Pre-initialize the cache volume with sticky+world-writable permissions using a root
-# container. The TFE container runs as uid=1000 and cannot chmod volumes itself.
-log "Pre-initialising cache volume permissions..."
-docker volume create terraform-enterprise_terraform-enterprise-cache 2>/dev/null || true
-docker run --rm \
-  -v terraform-enterprise_terraform-enterprise-cache:/tmp/terraform \
-  alpine sh -c "mkdir -p /tmp/terraform && chmod 1777 /tmp/terraform"
-log "Cache volume /tmp/terraform set to 1777"
-
-log "Building local TFE run pipeline image with writable /tmp/terraform..."
-mkdir -p /tmp/tfc-agent-image
-cat > /tmp/tfc-agent-image/Dockerfile << 'WORKERDOCKERFILE'
-FROM hashicorp/tfc-agent:latest
-USER root
-RUN mkdir -p /tmp/terraform && chmod 1777 /tmp /tmp/terraform
-VOLUME ["/tmp/terraform"]
-# TFC agent jobs need /tmp/terraform for plan artifacts; vanilla image has read-only /tmp.
-ENV TMPDIR=/tmp/terraform
-USER tfc-agent
-WORKERDOCKERFILE
-docker build -t local/tfc-agent:tmp-terraform /tmp/tfc-agent-image
-
 mkdir -p /etc/tfe
 log "Writing Docker Compose configuration..."
 cat > /etc/tfe/compose.yaml << 'COMPOSEYML'
@@ -114,24 +92,19 @@ services:
       TFE_OPERATIONAL_MODE: "disk"
       TFE_DISK_PATH: "/var/lib/terraform-enterprise"
       TFE_DISK_CACHE_VOLUME_NAME: "terraform-enterprise_terraform-enterprise-cache"
-      TFE_DISK_CACHE_PATH: "/tmp/terraform"
-      TFE_RUN_PIPELINE_IMAGE: "local/tfc-agent:tmp-terraform"
       TFE_ENCRYPTION_PASSWORD: "${iact_token}"
       TFE_TLS_CERT_FILE: "/etc/ssl/private/terraform-enterprise/cert.pem"
       TFE_TLS_KEY_FILE: "/etc/ssl/private/terraform-enterprise/key.pem"
       TFE_TLS_CA_BUNDLE_FILE: "/etc/ssl/private/terraform-enterprise/bundle.pem"
       TFE_IACT_SUBNETS: "0.0.0.0/0" # allow IACT from any subnet during initial setup
       TFE_IACT_TOKEN: "${iact_token}"
-      TMPDIR: "/tmp/terraform"
     cap_add:
       - IPC_LOCK
-    # Keep root filesystem writable so Terraform binary downloads used by runs
-    # can create temporary files under /tmp without "read-only file system" errors.
-    read_only: false
+    read_only: true
     tmpfs:
       - /tmp:mode=01777
-      - /run:mode=01777
-      - /var/log/terraform-enterprise:mode=01777
+      - /run
+      - /var/log/terraform-enterprise
     ports:
       - "80:80"
       - "443:443"
@@ -147,7 +120,7 @@ services:
         target: /var/lib/terraform-enterprise
       - type: volume
         source: terraform-enterprise-cache
-        target: /tmp/terraform
+        target: /var/cache/tfe-task-worker/terraform
 
 volumes:
   terraform-enterprise-cache:
@@ -158,8 +131,6 @@ log "Compose file written to /etc/tfe/compose.yaml"
 log "Starting TFE with Docker Compose..."
 docker compose -f /etc/tfe/compose.yaml up -d
 
-# The cache volume is mounted into agent-run containers at /tmp/terraform.
-# Ensure it is world-writable so the non-root tfc-agent user can create plugin temp files.
 log "Waiting for TFE container and task-worker to be ready..."
 for i in $(seq 1 90); do
   if docker ps --format '{{.Names}}' | grep -qx 'terraform-enterprise-tfe-1'; then
@@ -171,52 +142,6 @@ for i in $(seq 1 90); do
   fi
   sleep 2
 done
-
-# Re-apply volume permissions from the host (root context) in case TFE startup reset them.
-# The TFE container runs as uid=1000 and cannot chmod its own volumes.
-docker run --rm \
-  -v terraform-enterprise_terraform-enterprise-cache:/tmp/terraform \
-  alpine chmod 1777 /tmp/terraform \
-  && log "Cache volume /tmp/terraform re-confirmed as 1777" \
-  || log "WARNING: failed to re-apply chmod on cache volume"
-
-# Task-worker mounts /tmp/terraform into agent-run containers.
-# Force this mount to read-write so tfc-agent-core can create plugin temp files.
-log "Patching task-worker cache volume mount to read-write..."
-for i in $(seq 1 60); do
-  if docker ps --format '{{.Names}}' | grep -qx 'terraform-enterprise-tfe-1'; then
-    break
-  fi
-  sleep 2
-done
-
-if docker ps --format '{{.Names}}' | grep -qx 'terraform-enterprise-tfe-1'; then
-  docker exec terraform-enterprise-tfe-1 sh -lc '
-    set +e
-    for i in $(seq 1 60); do
-      if [ -f /etc/task-worker/config.hcl.tmpl ]; then
-        sed -i "s/readonly = \"true\"/readonly = \"false\"/g" /etc/task-worker/config.hcl.tmpl
-        break
-      fi
-      sleep 2
-    done
-    for i in $(seq 1 60); do
-      if [ -f /run/terraform-enterprise/task-worker/config.hcl ]; then
-        sed -i "s/readonly = \"true\"/readonly = \"false\"/g" /run/terraform-enterprise/task-worker/config.hcl
-        supervisorctl restart task-worker || true
-        break
-      fi
-      sleep 2
-    done
-    exit 0
-  ' || log "WARNING: task-worker patch command failed; bootstrap continuing"
-
-  # Re-assert cache permissions after task-worker config/launch steps.
-  docker exec terraform-enterprise-tfe-1 sh -lc 'chmod 1777 /tmp /tmp/terraform' \
-    || log "WARNING: failed to re-apply chmod on /tmp/terraform after task-worker patch"
-else
-  log "WARNING: terraform-enterprise container not running in time; skipping task-worker patch"
-fi
 
 log "Waiting for TFE to become healthy (this may take 10-15 minutes)..."
 for i in $(seq 1 60); do

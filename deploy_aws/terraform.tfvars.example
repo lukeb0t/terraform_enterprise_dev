@@ -4,4 +4,4 @@ tfe_license    = "02MV4UU..."   # replace with actual TFE license
 admin_email    = "admin@example.com"
 admin_password = "Change_Me_123!" # use a strong password
 org_name       = "hashicorp-demo"
-instance_type  = "m5.xlarge"
+instance_type  = "m5.large"
