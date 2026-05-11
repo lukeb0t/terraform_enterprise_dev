@@ -104,6 +104,37 @@ variable "ssm_path_prefix" {
   default = "/tfe"
 }
 
+variable "tfe_hostname" {
+  # Overrides the hostname TFE uses for TLS and URL construction.
+  # Defaults to the allocated Elastic IP. Set this when providing your own
+  # certificate issued for a specific domain name.
+  type    = string
+  default = null
+}
+
+variable "tls_cert_pem" {
+  # PEM-encoded TLS certificate. When all three tls_* variables are set,
+  # the self-signed certificate generation is skipped.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
+variable "tls_key_pem" {
+  # PEM-encoded TLS private key.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
+variable "tls_ca_bundle_pem" {
+  # PEM-encoded CA bundle. Should include the signing CA so TFE and
+  # agent containers trust the certificate.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
 variable "tags" {
   # Additional tags applied to created AWS resources.
   type    = map(string)

@@ -2,7 +2,8 @@
 # =============================================================================
 # Terraform Enterprise bootstrap for Ubuntu 22.04.
 # Template vars: tfe_hostname, tfe_license, tfe_version, iact_token,
-# admin_email, admin_password, org_name, ssm_prefix, region.
+# admin_email, admin_password, org_name, ssm_prefix, region,
+# tls_cert_ssm_path, tls_key_ssm_path, tls_bundle_ssm_path (optional; omit to generate self-signed).
 # =============================================================================
 set -euo pipefail
 
@@ -41,6 +42,18 @@ log "Authenticating with HashiCorp container registry..."
 echo "${tfe_license}" | docker login images.releases.hashicorp.com \
   --username terraform --password-stdin
 
+%{ if tls_cert_ssm_path != "" ~}
+log "Fetching provided TLS certificate from SSM..."
+mkdir -p /etc/tfe-tls
+aws ssm get-parameter --name "${tls_cert_ssm_path}" --with-decryption \
+  --region "$REGION" --query Parameter.Value --output text > /etc/tfe-tls/cert.pem
+aws ssm get-parameter --name "${tls_key_ssm_path}" --with-decryption \
+  --region "$REGION" --query Parameter.Value --output text > /etc/tfe-tls/key.pem
+aws ssm get-parameter --name "${tls_bundle_ssm_path}" --with-decryption \
+  --region "$REGION" --query Parameter.Value --output text > /etc/tfe-tls/bundle.pem
+chmod 644 /etc/tfe-tls/*.pem
+log "TLS certificate written to /etc/tfe-tls/"
+%{ else ~}
 log "Generating self-signed TLS certificate for $TFE_HOSTNAME..."
 mkdir -p /etc/tfe-tls
 
@@ -72,6 +85,7 @@ openssl req -x509 -newkey rsa:4096 -nodes \
 cp /etc/tfe-tls/cert.pem /etc/tfe-tls/bundle.pem
 chmod 644 /etc/tfe-tls/*.pem
 log "TLS certificate written to /etc/tfe-tls/"
+%{ endif ~}
 
 log "Creating TFE data directory..."
 mkdir -p /var/lib/tfe

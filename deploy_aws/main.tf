@@ -31,7 +31,7 @@ locals {
   vpc_id_resolved   = local.create_networking ? aws_vpc.tfe[0].id : var.vpc_id
   subnet_id_resolved = local.create_networking ? aws_subnet.tfe_public[0].id : var.subnet_id
 
-  tfe_hostname = aws_eip.tfe.public_ip
+  tfe_hostname = var.tfe_hostname != null ? var.tfe_hostname : aws_eip.tfe.public_ip
 
   # Apply a consistent tag set to all resources.
   common_tags = merge({
@@ -196,6 +196,31 @@ resource "aws_iam_role_policy" "tfe_ssm" {
   })
 }
 
+# Store BYO TLS material in SSM so it is not embedded in user data.
+resource "aws_ssm_parameter" "tls_cert" {
+  count = var.tls_cert_pem != null ? 1 : 0
+  name  = "${local.ssm_prefix}/tls-cert"
+  type  = "SecureString"
+  value = var.tls_cert_pem
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "tls_key" {
+  count = var.tls_key_pem != null ? 1 : 0
+  name  = "${local.ssm_prefix}/tls-key"
+  type  = "SecureString"
+  value = var.tls_key_pem
+  tags  = local.common_tags
+}
+
+resource "aws_ssm_parameter" "tls_bundle" {
+  count = var.tls_ca_bundle_pem != null ? 1 : 0
+  name  = "${local.ssm_prefix}/tls-bundle"
+  type  = "SecureString"
+  value = var.tls_ca_bundle_pem
+  tags  = local.common_tags
+}
+
 # Enable Session Manager access without opening SSH.
 resource "aws_iam_role_policy_attachment" "tfe_ssm_session_manager" {
   role       = aws_iam_role.tfe.name
@@ -236,15 +261,18 @@ resource "aws_instance" "tfe" {
 
   # base64encode prevents Terraform from interpreting template variables as HCL.
   user_data_base64 = base64encode(templatefile("${path.module}/templates/cloud-init.sh.tpl", {
-    tfe_hostname   = local.tfe_hostname
-    tfe_license    = var.tfe_license
-    tfe_version    = var.tfe_version
-    iact_token     = random_password.iact_token.result
-    admin_email    = var.admin_email
-    admin_password = var.admin_password
-    org_name       = var.org_name
-    ssm_prefix     = local.ssm_prefix
-    region         = data.aws_region.current.name
+    tfe_hostname        = local.tfe_hostname
+    tfe_license         = var.tfe_license
+    tfe_version         = var.tfe_version
+    iact_token          = random_password.iact_token.result
+    admin_email         = var.admin_email
+    admin_password      = var.admin_password
+    org_name            = var.org_name
+    ssm_prefix          = local.ssm_prefix
+    region              = data.aws_region.current.name
+    tls_cert_ssm_path   = var.tls_cert_pem != null ? "${local.ssm_prefix}/tls-cert" : ""
+    tls_key_ssm_path    = var.tls_key_pem != null ? "${local.ssm_prefix}/tls-key" : ""
+    tls_bundle_ssm_path = var.tls_ca_bundle_pem != null ? "${local.ssm_prefix}/tls-bundle" : ""
   }))
 
   tags = merge(local.common_tags, {
