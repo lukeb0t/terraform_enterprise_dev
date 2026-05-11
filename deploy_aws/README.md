@@ -45,28 +45,13 @@ When a workspace run is queued, the `task-worker-bootstrap` script (bundled insi
 
 Agent containers spawned for each run therefore trust TFE's self-signed endpoint without any custom image or manual cert injection.
 
-> **Important:** Do not set `TFE_RUN_PIPELINE_IMAGE`. Doing so skips `task-worker-bootstrap` entirely, bypassing the automatic CA cert injection mechanism.
-
 ### Terraform binary cache
 
 The Docker named volume `terraform-enterprise-cache` is mounted at `/var/cache/tfe-task-worker/terraform` inside the TFE container. When a run starts, `task-worker` downloads the required Terraform binary into this volume. The ephemeral agent container then mounts the same volume **read-only** at `/tmp/terraform` and executes the pre-downloaded binary directly.
 
-> **Important:** Do not set `TFE_DISK_CACHE_PATH`. `task-worker` appends `/terraform/` to this value when choosing where to store the binary. Setting it to the volume mount path (`.../terraform`) creates a double-nested path (`.../terraform/terraform/<hash>`) that agent containers cannot find. Leaving it unset uses the correct default (`/var/cache/tfe-task-worker`), placing binaries at the volume root where agents expect them.
-
-### Instance access
-
-There is no SSH port open by default. Use **AWS Systems Manager Session Manager** to access the instance:
-
-```bash
-aws ssm start-session --target <instance_id> --region <region>
-```
-
-To enable SSH, set `ssh_ingress_cidr_blocks` and provide a `key_pair_name`.
-
 ## Prerequisites
 
 - AWS account with permissions to create EC2, IAM, VPC, and SSM resources
-- AWS CLI configured with credentials and a default region (`AWS_DEFAULT_REGION` or provider config — there is no `region` input variable)
 - Terraform 1.3+
 - Terraform Enterprise license
 
