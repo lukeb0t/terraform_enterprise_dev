@@ -59,7 +59,7 @@ Internet ---------> |  Elastic IP                 |
 | `subnet_id` | `string` | no | `null` | Existing subnet ID; required when `create_networking = false`. |
 | `vpc_cidr` | `string` | no | `"10.101.0.0/16"` | CIDR for the new VPC. |
 | `subnet_cidr` | `string` | no | `"10.101.1.0/24"` | CIDR for the new public subnet. |
-| `instance_type` | `string` | no | `"m5.large"` | EC2 instance size. 8 GB RAM minimum recommended. |
+| `instance_type` | `string` | no | `"m5.large"` | EC2 instance size. |
 | `root_volume_size_gb` | `number` | no | `200` | Root EBS volume size in GiB (holds TFE application data). |
 | `key_pair_name` | `string` | no | `null` | EC2 key pair for SSH. Also requires `ssh_ingress_cidr_blocks`. |
 | `allowed_ingress_cidrs` | `list(string)` | no | `["0.0.0.0/0"]` | CIDRs allowed to reach TFE on ports 80/443. |
