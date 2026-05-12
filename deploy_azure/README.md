@@ -34,7 +34,7 @@ Internet ---------> |  Static Public IP           |
 
 - Azure subscription with permissions to create VMs, VNets, Key Vaults, and Managed Identities
 - Terraform Enterprise license
-- Azure CLI authenticated (`az login`) for the Terraform provider
+- Azure credentials configured (via `az login` or `ARM_*` environment variables)
 
 ## Quick start
 
@@ -61,7 +61,7 @@ Internet ---------> |  Static Public IP           |
 | `subnet_id` | `string` | no | `null` | Existing subnet ID; required when `create_networking = false`. |
 | `vnet_address_space` | `string` | no | `"10.101.0.0/16"` | Address space for the new VNet. |
 | `subnet_address_prefix` | `string` | no | `"10.101.1.0/24"` | Address prefix for the new subnet. |
-| `vm_size` | `string` | no | `"Standard_D2s_v3"` | Azure VM size. TFE requires at least 4 vCPU / 8 GB RAM. |
+| `vm_size` | `string` | no | `"Standard_D2s_v3"` | Azure VM size. 8 GB RAM minimum recommended. |
 | `os_disk_size_gb` | `number` | no | `200` | OS disk size in GiB (holds TFE application data). |
 | `admin_username` | `string` | no | `"tfeadmin"` | Local admin username on the VM. |
 | `ssh_public_key` | `string` | no | `null` | SSH public key for the admin user. When null, password auth is enabled with a random password. |
