@@ -59,21 +59,42 @@ kv_get_token() {
 
 kv_get() {
   local secret_name="$1"
-  local token; token=$(kv_get_token)
-  curl -sf \
-    "https://$KV_NAME.vault.azure.net/secrets/$secret_name?api-version=7.4" \
-    -H "Authorization: Bearer $token" | jq -r '.value'
+  local attempt token response value
+  for attempt in $(seq 1 20); do
+    token=$(kv_get_token)
+    response=$(curl -sf \
+      "https://$KV_NAME.vault.azure.net/secrets/$secret_name?api-version=7.4" \
+      -H "Authorization: Bearer $token" 2>/dev/null || true)
+    value=$(printf '%s' "$response" | jq -r '.value // empty' 2>/dev/null || true)
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    log "KV get attempt $attempt/20 for '$secret_name' failed; waiting 15s..."
+    sleep 15
+  done
+  log "ERROR: Failed to read Key Vault secret '$secret_name' after 5 minutes"
+  return 1
 }
 
 kv_set() {
   local secret_name="$1" secret_value="$2"
-  local token; token=$(kv_get_token)
-  local payload; payload=$(jq -n --arg v "$secret_value" '{"value":$v}')
-  curl -sf -X PUT \
-    "https://$KV_NAME.vault.azure.net/secrets/$secret_name?api-version=7.4" \
-    -H "Authorization: Bearer $token" \
-    -H "Content-Type: application/json" \
-    -d "$payload" > /dev/null
+  local attempt token payload
+  payload=$(jq -n --arg v "$secret_value" '{"value":$v}')
+  for attempt in $(seq 1 20); do
+    token=$(kv_get_token)
+    if curl -sf -X PUT \
+      "https://$KV_NAME.vault.azure.net/secrets/$secret_name?api-version=7.4" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      -d "$payload" > /dev/null 2>&1; then
+      return 0
+    fi
+    log "KV set attempt $attempt/20 for '$secret_name' failed; waiting 15s..."
+    sleep 15
+  done
+  log "ERROR: Failed to write Key Vault secret '$secret_name' after 5 minutes"
+  return 1
 }
 
 log "Authenticating with HashiCorp container registry..."
