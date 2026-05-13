@@ -224,7 +224,7 @@ done
 
 log "Waiting for TFE to become healthy (this may take up to 10 minutes)..."
 for i in $(seq 1 20); do
-  HTTP_CODE=$(curl -sk -o /dev/null -w "%%{http_code}" "https://$TFE_HOSTNAME/_health_check" 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -sk -o /dev/null -w "%%{http_code}" "https://$TFE_HOSTNAME/api/v1/health/readiness" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     log "TFE is healthy (attempt $i/20)"
     break
