@@ -174,7 +174,7 @@ Error response from daemon: unauthorized: ... license
 or the health-check timeout at the end of bootstrap:
 
 ```
-ERROR: TFE did not become healthy after 30 minutes
+ERROR: TFE did not become healthy after 10 minutes
 ```
 
 ### 3. Check the container status
