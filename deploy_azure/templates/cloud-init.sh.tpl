@@ -213,19 +213,19 @@ for i in $(seq 1 90); do
   sleep 2
 done
 
-log "Waiting for TFE to become healthy (this may take 10-15 minutes)..."
-for i in $(seq 1 60); do
+log "Waiting for TFE to become healthy (this may take up to 10 minutes)..."
+for i in $(seq 1 20); do
   HTTP_CODE=$(curl -sk -o /dev/null -w "%%{http_code}" "https://$TFE_HOSTNAME/_health_check" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
-    log "TFE is healthy (attempt $i/60)"
+    log "TFE is healthy (attempt $i/20)"
     break
   fi
-  if [ "$i" -eq 60 ]; then
-    log "ERROR: TFE did not become healthy after 30 minutes"
+  if [ "$i" -eq 20 ]; then
+    log "ERROR: TFE did not become healthy after 10 minutes"
     docker compose -f /etc/tfe/compose.yaml logs --tail=50 >&2
     exit 1
   fi
-  log "Attempt $i/60 — HTTP $HTTP_CODE — waiting 30s..."
+  log "Attempt $i/20 — HTTP $HTTP_CODE — waiting 30s..."
   sleep 30
 done
 
