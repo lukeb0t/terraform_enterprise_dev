@@ -40,7 +40,7 @@ Internet ---------> |  Elastic IP                 |
 1. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in your values.
 2. Run `terraform init`.
 3. Run `terraform apply`.
-4. Wait ~5 minutes for cloud-init to complete — TFE pulls its image and bootstraps on first boot. Bootstrap will fail fast (within 10 minutes) if TFE does not become healthy.
+4. Wait ~5 minutes for cloud-init to complete — TFE pulls its image and bootstraps on first boot.
 5. Open the `tfe_url` output in a browser (accept the self-signed cert warning, if using self-signed certs).
 6. Retrieve tokens from SSM as shown below.
 
