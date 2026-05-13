@@ -6,10 +6,6 @@
 # managed_identity_client_id,
 # tls_cert_kv_secret, tls_key_kv_secret, tls_bundle_kv_secret
 # (optional; empty string = generate self-signed certificate).
-# Explorer (all optional; setting explorer_database_host enables the feature):
-#   explorer_database_host, explorer_database_name, explorer_database_user,
-#   explorer_database_password, explorer_database_parameters,
-#   explorer_database_auth_use_azure_msi, explorer_database_auth_azure_client_id.
 # =============================================================================
 set -euo pipefail
 
@@ -147,6 +143,9 @@ chmod 644 /etc/tfe-tls/*.pem
 log "TLS certificate written to /etc/tfe-tls/"
 %{ endif ~}
 
+log "Creating TFE data directory..."
+mkdir -p /var/lib/tfe
+
 log "Pulling TFE image $TFE_VERSION..."
 docker pull "images.releases.hashicorp.com/hashicorp/terraform-enterprise:$TFE_VERSION"
 
@@ -155,65 +154,20 @@ log "Writing Docker Compose configuration..."
 cat > /etc/tfe/compose.yaml << 'COMPOSEYML'
 name: terraform-enterprise
 services:
-  postgres:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: "${database_name}"
-      POSTGRES_USER: "${database_user}"
-      POSTGRES_PASSWORD: "${database_password}"
-    volumes:
-      - type: volume
-        source: postgres-data
-        target: /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${database_user} -d ${database_name}"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-
   tfe:
     image: images.releases.hashicorp.com/hashicorp/terraform-enterprise:${tfe_version}
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       TFE_LICENSE: "${tfe_license}"
       TFE_HOSTNAME: "${tfe_hostname}"
-      TFE_OPERATIONAL_MODE: "external"
+      TFE_OPERATIONAL_MODE: "disk"
+      TFE_DISK_PATH: "/var/lib/terraform-enterprise"
+      TFE_DISK_CACHE_VOLUME_NAME: "terraform-enterprise_terraform-enterprise-cache"
       TFE_ENCRYPTION_PASSWORD: "${iact_token}"
-      TFE_DATABASE_HOST: "postgres:5432"
-      TFE_DATABASE_NAME: "${database_name}"
-      TFE_DATABASE_USER: "${database_user}"
-      TFE_DATABASE_PASSWORD: "${database_password}"
-      TFE_DATABASE_PARAMETERS: "${database_parameters}"
-      TFE_OBJECT_STORAGE_TYPE: "azure"
-      TFE_OBJECT_STORAGE_AZURE_ACCOUNT_NAME: "${storage_account_name}"
-      TFE_OBJECT_STORAGE_AZURE_CONTAINER: "${storage_container_name}"
-      TFE_OBJECT_STORAGE_AZURE_USE_MSI: "true"
-      TFE_OBJECT_STORAGE_AZURE_CLIENT_ID: "${managed_identity_client_id}"
       TFE_TLS_CERT_FILE: "/etc/ssl/private/terraform-enterprise/cert.pem"
       TFE_TLS_KEY_FILE: "/etc/ssl/private/terraform-enterprise/key.pem"
       TFE_TLS_CA_BUNDLE_FILE: "/etc/ssl/private/terraform-enterprise/bundle.pem"
       TFE_IACT_SUBNETS: "0.0.0.0/0"
       TFE_IACT_TOKEN: "${iact_token}"
-%{ if explorer_database_host != null ~}
-      TFE_EXPLORER_DATABASE_HOST: "${explorer_database_host}"
-      TFE_EXPLORER_DATABASE_NAME: "${explorer_database_name}"
-%{ if explorer_database_user != null ~}
-      TFE_EXPLORER_DATABASE_USER: "${explorer_database_user}"
-%{ endif ~}
-%{ if explorer_database_password != null ~}
-      TFE_EXPLORER_DATABASE_PASSWORD: "${explorer_database_password}"
-%{ endif ~}
-%{ if explorer_database_parameters != "" ~}
-      TFE_EXPLORER_DATABASE_PARAMETERS: "${explorer_database_parameters}"
-%{ endif ~}
-%{ if explorer_database_auth_use_azure_msi ~}
-      TFE_EXPLORER_DATABASE_AUTH_USE_AZURE_MSI: "true"
-      TFE_EXPLORER_DATABASE_AUTH_AZURE_CLIENT_ID: "${explorer_database_auth_azure_client_id}"
-%{ endif ~}
-%{ endif ~}
     cap_add:
       - IPC_LOCK
     read_only: true
@@ -231,12 +185,14 @@ services:
       - type: bind
         source: /etc/tfe-tls
         target: /etc/ssl/private/terraform-enterprise
+      - type: bind
+        source: /var/lib/tfe
+        target: /var/lib/terraform-enterprise
       - type: volume
         source: terraform-enterprise-cache
         target: /var/cache/tfe-task-worker/terraform
 
 volumes:
-  postgres-data:
   terraform-enterprise-cache:
     name: terraform-enterprise_terraform-enterprise-cache
 COMPOSEYML

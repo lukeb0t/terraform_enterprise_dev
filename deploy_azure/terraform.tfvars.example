@@ -6,17 +6,3 @@ admin_email    = "admin@example.com"
 admin_password = "Change_Me_123!" # use a strong password
 org_name       = "hashicorp-demo"
 vm_size        = "Standard_D2s_v3"
-
-# ── Explorer (optional) ───────────────────────────────────────────────────────
-# Requires external or active-active operational mode.
-# Uncomment and fill in to enable TFE Explorer.
-#
-# explorer_database_host     = "explorer-db.postgres.database.azure.com:5432"
-# explorer_database_name     = "tfe_explorer"
-# explorer_database_user     = "explorer"
-# explorer_database_password = "ChangeMe!"
-# explorer_database_parameters = "sslmode=require"
-#
-# Use MSI passwordless auth instead of a static password:
-# explorer_database_auth_use_azure_msi   = true
-# explorer_database_auth_azure_client_id = ""  # leave empty for system-assigned MSI
