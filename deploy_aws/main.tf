@@ -33,6 +33,8 @@ locals {
 
   tfe_hostname = var.tfe_hostname != null ? var.tfe_hostname : aws_eip.tfe.public_ip
 
+  storage_bucket = var.storage_bucket_name != null ? var.storage_bucket_name : "${var.cluster_name}-tfe-data-${random_id.bucket_suffix.hex}"
+
   # Apply a consistent tag set to all resources.
   common_tags = merge({
     Module      = "tfe_deploy"
@@ -44,6 +46,17 @@ locals {
 resource "random_password" "iact_token" {
   length  = 32
   special = false # alphanumeric only for simple password entry during initial setup
+}
+
+# Auto-generated password for the PostgreSQL sidecar container.
+resource "random_password" "database" {
+  length  = 32
+  special = false
+}
+
+# Random suffix to make the S3 bucket name globally unique.
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
 }
 
 # Create a dedicated VPC when the caller does not provide one.
@@ -273,6 +286,20 @@ resource "aws_instance" "tfe" {
     tls_cert_ssm_path   = var.tls_cert_pem != null ? "${local.ssm_prefix}/tls-cert" : ""
     tls_key_ssm_path    = var.tls_key_pem != null ? "${local.ssm_prefix}/tls-key" : ""
     tls_bundle_ssm_path = var.tls_ca_bundle_pem != null ? "${local.ssm_prefix}/tls-bundle" : ""
+    # External mode
+    database_name       = var.database_name
+    database_user       = var.database_user
+    database_password   = random_password.database.result
+    database_parameters = var.database_parameters
+    storage_bucket      = local.storage_bucket
+    # Explorer
+    explorer_database_host                 = var.explorer_database_host
+    explorer_database_name                 = var.explorer_database_name
+    explorer_database_user                 = var.explorer_database_user
+    explorer_database_password             = var.explorer_database_password
+    explorer_database_parameters           = var.explorer_database_parameters
+    explorer_database_passwordless_aws     = var.explorer_database_passwordless_aws
+    explorer_database_aws_region           = var.explorer_database_aws_region != "" ? var.explorer_database_aws_region : data.aws_region.current.name
   }))
 
   tags = merge(local.common_tags, {
@@ -284,4 +311,66 @@ resource "aws_instance" "tfe" {
 resource "aws_eip_association" "tfe" {
   allocation_id = aws_eip.tfe.id
   instance_id   = aws_instance.tfe.id
+}
+
+# ── S3 object storage for TFE external mode ────────────────────────────────────
+
+resource "aws_s3_bucket" "tfe" {
+  bucket        = local.storage_bucket
+  force_destroy = true
+
+  tags = merge(local.common_tags, {
+    Name = "${var.cluster_name}-tfe-data"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "tfe" {
+  bucket = aws_s3_bucket.tfe.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "tfe" {
+  bucket = aws_s3_bucket.tfe.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "tfe" {
+  bucket                  = aws_s3_bucket.tfe.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_iam_role_policy" "tfe_s3" {
+  name = "${var.cluster_name}-tfe-s3"
+  role = aws_iam_role.tfe.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetObjectTagging",
+          "s3:PutObjectTagging",
+        ]
+        Resource = "${aws_s3_bucket.tfe.arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.tfe.arn
+      }
+    ]
+  })
 }

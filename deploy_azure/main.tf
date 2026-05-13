@@ -9,6 +9,9 @@ locals {
   # Key Vault names must be globally unique, 3-24 chars, alphanumeric + hyphens.
   kv_name = "${substr(var.cluster_name, 0, 13)}-kv-${random_id.kv_suffix.hex}"
 
+  # Storage Account names: 3-24 chars, lowercase alphanumeric only.
+  storage_account_name = var.storage_account_name != null ? var.storage_account_name : "${substr(lower(replace(var.cluster_name, "-", "")), 0, 8)}tfe${random_id.kv_suffix.hex}"
+
   common_tags = merge({
     Module      = "tfe_deploy"
     ClusterName = var.cluster_name
@@ -16,6 +19,12 @@ locals {
 }
 
 resource "random_password" "iact_token" {
+  length  = 32
+  special = false
+}
+
+# Auto-generated password for the PostgreSQL sidecar container.
+resource "random_password" "database" {
   length  = 32
   special = false
 }
@@ -263,9 +272,49 @@ resource "azurerm_linux_virtual_machine" "tfe" {
     tls_cert_kv_secret         = var.tls_cert_pem != null ? "tls-cert" : ""
     tls_key_kv_secret          = var.tls_key_pem != null ? "tls-key" : ""
     tls_bundle_kv_secret       = var.tls_ca_bundle_pem != null ? "tls-bundle" : ""
+    # External mode
+    database_name          = var.database_name
+    database_user          = var.database_user
+    database_password      = random_password.database.result
+    database_parameters    = var.database_parameters
+    storage_account_name   = local.storage_account_name
+    storage_container_name = var.storage_container_name
+    # Explorer
+    explorer_database_host                 = var.explorer_database_host
+    explorer_database_name                 = var.explorer_database_name
+    explorer_database_user                 = var.explorer_database_user
+    explorer_database_password             = var.explorer_database_password
+    explorer_database_parameters           = var.explorer_database_parameters
+    explorer_database_auth_use_azure_msi   = var.explorer_database_auth_use_azure_msi
+    explorer_database_auth_azure_client_id = var.explorer_database_auth_azure_client_id
   }))
 
   tags = merge(local.common_tags, {
     Name = "${var.cluster_name}-tfe"
   })
+}
+
+# ── Azure Blob Storage for TFE external mode ───────────────────────────────────
+
+resource "azurerm_storage_account" "tfe" {
+  name                     = local.storage_account_name
+  resource_group_name      = azurerm_resource_group.tfe.name
+  location                 = azurerm_resource_group.tfe.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  min_tls_version          = "TLS1_2"
+  tags                     = local.common_tags
+}
+
+resource "azurerm_storage_container" "tfe" {
+  name                  = var.storage_container_name
+  storage_account_id    = azurerm_storage_account.tfe.id
+  container_access_type = "private"
+}
+
+# VM managed identity can read and write blobs (TFE object storage).
+resource "azurerm_role_assignment" "vm_storage" {
+  scope                = azurerm_storage_account.tfe.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.tfe.principal_id
 }

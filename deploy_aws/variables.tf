@@ -140,3 +140,83 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+# ── External mode: database ────────────────────────────────────────────────────
+
+variable "database_name" {
+  # Name of the PostgreSQL database created for TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_user" {
+  # PostgreSQL username used by TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_parameters" {
+  # Additional PostgreSQL connection URI parameters.
+  # sslmode=disable is appropriate for the local compose sidecar.
+  type    = string
+  default = "sslmode=disable"
+}
+
+# ── External mode: object storage ─────────────────────────────────────────────
+
+variable "storage_bucket_name" {
+  # Override the auto-generated S3 bucket name. Must be globally unique.
+  # Defaults to "<cluster_name>-tfe-data-<random>".
+  type    = string
+  default = null
+}
+
+# ── TFE Explorer ───────────────────────────────────────────────────────────────
+# Explorer requires external or active-active operational mode.
+# Setting explorer_database_host enables the feature.
+
+variable "explorer_database_host" {
+  # PostgreSQL host for the Explorer database (HOST or HOST:PORT).
+  # Setting this variable enables the Explorer feature.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_name" {
+  # Name of the PostgreSQL database used to store Explorer data.
+  type    = string
+  default = "tfe_explorer"
+}
+
+variable "explorer_database_user" {
+  # PostgreSQL username for the Explorer database.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_password" {
+  # PostgreSQL password for the Explorer database.
+  # Not required when using IAM passwordless authentication.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
+variable "explorer_database_parameters" {
+  # Additional PostgreSQL connection URI parameters, e.g. "sslmode=require".
+  type    = string
+  default = ""
+}
+
+variable "explorer_database_passwordless_aws" {
+  # Use EC2 instance profile IAM auth for the Explorer database (RDS IAM).
+  type    = bool
+  default = false
+}
+
+variable "explorer_database_aws_region" {
+  # AWS region of the Explorer RDS instance.
+  # Defaults to the deployment region when left empty.
+  type    = string
+  default = ""
+}

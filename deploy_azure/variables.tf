@@ -144,3 +144,89 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+# ── External mode: database ────────────────────────────────────────────────────
+
+variable "database_name" {
+  # Name of the PostgreSQL database created for TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_user" {
+  # PostgreSQL username used by TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_parameters" {
+  # Additional PostgreSQL connection URI parameters.
+  # sslmode=disable is appropriate for the local compose sidecar.
+  type    = string
+  default = "sslmode=disable"
+}
+
+# ── External mode: object storage ─────────────────────────────────────────────
+
+variable "storage_account_name" {
+  # Override the auto-generated Azure Storage Account name (3-24 lowercase alphanumeric).
+  # Defaults to a name derived from cluster_name + random suffix.
+  type    = string
+  default = null
+}
+
+variable "storage_container_name" {
+  # Blob container name for TFE object storage.
+  type    = string
+  default = "tfe-data"
+}
+
+# ── TFE Explorer ───────────────────────────────────────────────────────────────
+# Explorer requires external or active-active operational mode.
+# Setting explorer_database_host enables the feature.
+
+variable "explorer_database_host" {
+  # PostgreSQL host for the Explorer database (HOST or HOST:PORT).
+  # Setting this variable enables the Explorer feature.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_name" {
+  # Name of the PostgreSQL database used to store Explorer data.
+  type    = string
+  default = "tfe_explorer"
+}
+
+variable "explorer_database_user" {
+  # PostgreSQL username for the Explorer database.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_password" {
+  # PostgreSQL password for the Explorer database.
+  # Not required when using MSI authentication.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
+variable "explorer_database_parameters" {
+  # Additional PostgreSQL connection URI parameters, e.g. "sslmode=require".
+  type    = string
+  default = ""
+}
+
+variable "explorer_database_auth_use_azure_msi" {
+  # Use Managed Service Identity for passwordless Explorer database authentication.
+  type    = bool
+  default = false
+}
+
+variable "explorer_database_auth_azure_client_id" {
+  # Client ID of the user-assigned MSI for Explorer database auth.
+  # Leave empty to use the system-assigned MSI.
+  type    = string
+  default = ""
+}

@@ -5,3 +5,17 @@ admin_email    = "admin@example.com"
 admin_password = "Change_Me_123!" # use a strong password
 org_name       = "hashicorp-demo"
 instance_type  = "m5.large"
+
+# ── Explorer (optional) ───────────────────────────────────────────────────────
+# Requires external or active-active operational mode.
+# Uncomment and fill in to enable TFE Explorer.
+#
+# explorer_database_host     = "explorer-db.example.com:5432"
+# explorer_database_name     = "tfe_explorer"
+# explorer_database_user     = "explorer"
+# explorer_database_password = "ChangeMe!"
+# explorer_database_parameters = "sslmode=require"
+#
+# Use IAM passwordless auth instead of a static password:
+# explorer_database_passwordless_aws = true
+# explorer_database_aws_region       = "us-east-1"
