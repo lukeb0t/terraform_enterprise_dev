@@ -1,6 +1,6 @@
 # tfe_deploy_aws
 
-Deploys Terraform Enterprise on a single Ubuntu 22.04 EC2 instance using Docker Compose. 
+Deploys Terraform Enterprise on a single Ubuntu 22.04 EC2 instance using Docker Compose in external operational mode with TFE Explorer enabled.
 
 ## Architecture
 
@@ -16,31 +16,30 @@ Internet ---------> |  Elastic IP                 |
                     | Ubuntu 22.04 EC2            |
                     | Docker + Docker Compose     |
                     |                             |
+                    |  postgres:16 sidecar        |
                     |  TFE container (read-only)  |
-                    |  +-----------------------+  |
-                    |  | /var/lib/tfe (bind)   |  |  <-- gp3 EBS (application data)
-                    |  | /etc/tfe-tls (bind)   |  |  <-- self-signed TLS cert
-                    |  | cache volume (rw)     |  |  <-- Terraform binary cache
-                    |  +-----------------------+  |
-                    |                             |
+                    |  cache volume (rw)          |
                     +------+---------------+------+
                            |               |
                   gp3 root volume      AWS SSM Parameter Store
-                  /var/lib/tfe         /tfe/<cluster>/admin-token
+                                       /tfe/<cluster>/admin-token
                                        /tfe/<cluster>/org-token
+                           |
+                           +------ S3 bucket
+                                   TFE object data
 ```
 
 ## Prerequisites
 
-- AWS account with permissions to create EC2, IAM, VPC, and SSM resources
-- Terraform Enterprise license
+- AWS account with permissions to create EC2, IAM, VPC, S3, and SSM resources
+- Terraform Enterprise license (version 2.0.1 or later required for Explorer)
 
 ## Quick start
 
 1. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in your values.
 2. Run `terraform init`.
 3. Run `terraform apply`.
-4. Wait ~5 minutes for cloud-init to complete — TFE pulls its image and bootstraps on first boot.
+4. Wait ~10 minutes for cloud-init to complete — TFE pulls its image, runs database migrations, and bootstraps on first boot.
 5. Open the `tfe_url` output in a browser (accept the self-signed cert warning, if using self-signed certs).
 6. Retrieve tokens from SSM as shown below.
 
@@ -52,7 +51,7 @@ Internet ---------> |  Elastic IP                 |
 | `tfe_license` | `string` | yes | — | TFE Enterprise license string. |
 | `admin_email` | `string` | yes | — | Email for the initial TFE admin user. |
 | `admin_password` | `string` | yes | — | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
-| `tfe_version` | `string` | no | `"v202505-1"` | TFE Docker image tag to deploy. |
+| `tfe_version` | `string` | no | `"2.0.1"` | TFE Docker image tag to deploy. |
 | `org_name` | `string` | no | `"hashicorp-demo"` | TFE organization created during bootstrap. |
 | `create_networking` | `bool` | no | `true` | Create a VPC/subnet. Set `false` when reusing an existing network. |
 | `vpc_id` | `string` | no | `null` | Existing VPC ID; required when `create_networking = false`. |
@@ -60,15 +59,26 @@ Internet ---------> |  Elastic IP                 |
 | `vpc_cidr` | `string` | no | `"10.101.0.0/16"` | CIDR for the new VPC. |
 | `subnet_cidr` | `string` | no | `"10.101.1.0/24"` | CIDR for the new public subnet. |
 | `instance_type` | `string` | no | `"m5.large"` | EC2 instance size. |
-| `root_volume_size_gb` | `number` | no | `200` | Root EBS volume size in GiB (holds TFE application data). |
+| `root_volume_size_gb` | `number` | no | `200` | Root EBS volume size in GiB. |
 | `key_pair_name` | `string` | no | `null` | EC2 key pair for SSH. Also requires `ssh_ingress_cidr_blocks`. |
 | `allowed_ingress_cidrs` | `list(string)` | no | `["0.0.0.0/0"]` | CIDRs allowed to reach TFE on ports 80/443. |
 | `ssh_ingress_cidr_blocks` | `list(string)` | no | `[]` | CIDRs allowed SSH (port 22). Empty = SSM-only access. |
 | `ssm_path_prefix` | `string` | no | `"/tfe"` | SSM Parameter Store prefix for bootstrap tokens. |
-| `tfe_hostname` | `string` | no | EIP | Overrides the hostname used for TLS and TFE URLs. Set this when providing a cert issued for a domain name. |
+| `tfe_hostname` | `string` | no | EIP | Overrides the hostname used for TLS and TFE URLs. Set when providing a cert issued for a domain name. |
 | `tls_cert_pem` | `string` | no | `null` | PEM-encoded TLS certificate. All three `tls_*` vars must be set together to skip self-signed generation. |
 | `tls_key_pem` | `string` | no | `null` | PEM-encoded TLS private key. |
 | `tls_ca_bundle_pem` | `string` | no | `null` | PEM-encoded CA bundle. Should include the signing CA so TFE and agent containers trust the certificate. |
+| `database_name` | `string` | no | `"tfe"` | PostgreSQL database name for the local postgres sidecar. |
+| `database_user` | `string` | no | `"tfe"` | PostgreSQL username for the local postgres sidecar. |
+| `database_parameters` | `string` | no | `"sslmode=disable"` | Additional PostgreSQL connection parameters for the main TFE database. |
+| `storage_bucket_name` | `string` | no | `null` | Override the auto-generated S3 bucket name. Must be globally unique. |
+| `explorer_database_host` | `string` | no | `null` | Explorer PostgreSQL host. Defaults to the local postgres sidecar. |
+| `explorer_database_name` | `string` | no | `"tfe_explorer"` | Explorer PostgreSQL database name. |
+| `explorer_database_user` | `string` | no | `null` | Explorer PostgreSQL username. Defaults to `database_user`. |
+| `explorer_database_password` | `string` | no | `null` | Explorer PostgreSQL password. Defaults to the generated main DB password. |
+| `explorer_database_parameters` | `string` | no | `"sslmode=disable"` | Additional PostgreSQL connection parameters for Explorer. |
+| `explorer_database_passwordless_aws` | `bool` | no | `false` | Use EC2 instance profile IAM authentication for the Explorer database (RDS IAM auth). |
+| `explorer_database_aws_region` | `string` | no | current region | AWS region for Explorer IAM database auth. |
 | `tags` | `map(string)` | no | `{}` | Extra AWS tags applied to all resources. |
 
 ## Outputs
@@ -80,12 +90,38 @@ Internet ---------> |  Elastic IP                 |
 | `public_ip` | Elastic IP attached to the instance. |
 | `instance_id` | EC2 instance ID. |
 | `security_group_id` | Security group ID for the TFE host. |
+| `s3_bucket_name` | S3 bucket used for TFE object storage. |
+| `database_name` | PostgreSQL database name for TFE. |
+| `database_user` | PostgreSQL user for TFE. |
 | `ssm_prefix` | Base SSM path used by bootstrap. |
 | `ssm_admin_token_path` | SSM path for the TFE admin API token. |
 | `ssm_org_token_path` | SSM path for the TFE organization token. |
 | `retrieve_admin_token_cmd` | Ready-to-run `aws ssm` command to retrieve the admin token. |
 | `vpc_id` | Resolved VPC ID. |
 | `subnet_id` | Resolved subnet ID. |
+
+## External mode defaults
+
+The module deploys TFE in `external` operational mode with:
+
+- a local `postgres:16` sidecar for the main TFE and Explorer databases
+- S3 for object storage via EC2 instance profile (no credentials required)
+- `sslmode=disable` for both database connections (appropriate for the local postgres sidecar)
+- a bootstrap PostgreSQL init script that creates required schemas/extensions and the `tfe_explorer` database
+
+Explorer is configured only with official `TFE_EXPLORER_DATABASE_*` environment variables and is enabled by default using the postgres sidecar.
+
+## TFE Explorer
+
+Explorer is available at `https://<tfe_hostname>/app/<org_name>/explorer` once TFE is running. Query across workspaces using the API:
+
+```bash
+curl -s \
+  -H "Authorization: Bearer <admin_token>" \
+  "https://<tfe_hostname>/api/v2/organizations/<org_name>/explorer?type=workspaces" | jq .
+```
+
+Available query types: `workspaces`, `tf_versions`, `providers`, `modules`.
 
 ## Bring your own networking
 
@@ -104,10 +140,10 @@ The subnet must be public (or have a route to the internet via NAT) so the EC2 i
 By default the module generates a self-signed certificate on first boot using the instance's Elastic IP as the Subject Alternative Name. To use a certificate from your own CA instead, supply all three `tls_*` variables:
 
 ```hcl
-tfe_hostname    = "tfe.example.com"   # hostname the cert was issued for
-tls_cert_pem    = file("tfe.crt")     # PEM certificate (leaf + intermediates)
-tls_key_pem     = file("tfe.key")     # PEM private key
-tls_ca_bundle_pem = file("ca.crt")   # PEM CA bundle (used by TFE agent containers)
+tfe_hostname      = "tfe.example.com"  # hostname the cert was issued for
+tls_cert_pem      = file("tfe.crt")    # PEM certificate (leaf + intermediates)
+tls_key_pem       = file("tfe.key")    # PEM private key
+tls_ca_bundle_pem = file("ca.crt")     # PEM CA bundle (used by TFE agent containers)
 ```
 
 > All three `tls_*` variables must be set together — supplying only some of them has no effect and the module will fall back to a self-signed cert.
@@ -175,8 +211,8 @@ ERROR: TFE did not become healthy after 10 minutes
 ### 3. Check the container status
 
 ```bash
-# See if the container is running, restarting, or has exited
-docker ps -a --filter name=terraform-enterprise-tfe-1
+# See if the containers are running, restarting, or have exited
+docker ps -a --filter name=terraform-enterprise
 
 # Check the Docker Compose service status
 docker compose -f /etc/tfe/compose.yaml ps
@@ -208,7 +244,7 @@ A bad license typically produces one of these messages:
 docker exec terraform-enterprise-tfe-1 supervisorctl status
 
 # Hit the health endpoint (returns 200 when TFE is fully ready)
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/_health_check
+curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/v1/health/readiness
 ```
 
 ### 6. Fixing a bad license
@@ -221,4 +257,6 @@ curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/_health_check
 
 - [Deploy TFE to Docker](https://developer.hashicorp.com/terraform/enterprise/deploy/docker)
 - [TFE configuration reference](https://developer.hashicorp.com/terraform/enterprise/deploy/reference/configuration)
+- [Connect to PostgreSQL](https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/storage/connect-database/postgres)
+- [Enable TFE Explorer](https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/enable-explorer)
 - [TFE data storage overview](https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/storage)

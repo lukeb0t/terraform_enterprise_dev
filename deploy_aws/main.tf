@@ -35,6 +35,11 @@ locals {
 
   storage_bucket = var.storage_bucket_name != null ? var.storage_bucket_name : "${var.cluster_name}-tfe-data-${random_id.bucket_suffix.hex}"
 
+  # Explorer defaults to the postgres sidecar when no external host is supplied.
+  explorer_db_host     = var.explorer_database_host != null ? var.explorer_database_host : "postgres:5432"
+  explorer_db_user     = var.explorer_database_user != null ? var.explorer_database_user : var.database_user
+  explorer_db_password = var.explorer_database_password != null ? var.explorer_database_password : random_password.database.result
+
   # Apply a consistent tag set to all resources.
   common_tags = merge({
     Module      = "tfe_deploy"
@@ -292,11 +297,11 @@ resource "aws_instance" "tfe" {
     database_password   = random_password.database.result
     database_parameters = var.database_parameters
     storage_bucket      = local.storage_bucket
-    # Explorer
-    explorer_database_host                 = var.explorer_database_host
+    # Explorer — always enabled; defaults to the postgres sidecar
+    explorer_database_host                 = local.explorer_db_host
     explorer_database_name                 = var.explorer_database_name
-    explorer_database_user                 = var.explorer_database_user
-    explorer_database_password             = var.explorer_database_password
+    explorer_database_user                 = local.explorer_db_user
+    explorer_database_password             = local.explorer_db_password
     explorer_database_parameters           = var.explorer_database_parameters
     explorer_database_passwordless_aws     = var.explorer_database_passwordless_aws
     explorer_database_aws_region           = var.explorer_database_aws_region != "" ? var.explorer_database_aws_region : data.aws_region.current.name
