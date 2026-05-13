@@ -4,10 +4,12 @@
 # Template vars: tfe_hostname, tfe_license, tfe_version, iact_token,
 # admin_email, admin_password, org_name, ssm_prefix, region,
 # tls_cert_ssm_path, tls_key_ssm_path, tls_bundle_ssm_path (optional; omit to generate self-signed).
-# Explorer (all optional; setting explorer_database_host enables the feature):
-#   explorer_database_host, explorer_database_name, explorer_database_user,
-#   explorer_database_password, explorer_database_parameters,
-#   explorer_database_passwordless_aws, explorer_database_aws_region.
+# Explorer (official vars per https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/enable-explorer):
+#   TFE_EXPLORER_DATABASE_HOST       — enables Explorer; defaults to the postgres sidecar
+#   TFE_EXPLORER_DATABASE_NAME       — defaults to "tfe_explorer"
+#   TFE_EXPLORER_DATABASE_USER/PASSWORD — default to the main DB credentials
+#   TFE_EXPLORER_DATABASE_PARAMETERS — optional connection URI params
+#   TFE_EXPLORER_DATABASE_PASSWORDLESS_AWS_* — optional IAM auth for external RDS
 # =============================================================================
 set -euo pipefail
 
@@ -91,6 +93,31 @@ chmod 644 /etc/tfe-tls/*.pem
 log "TLS certificate written to /etc/tfe-tls/"
 %{ endif ~}
 
+log "Writing PostgreSQL init script..."
+mkdir -p /etc/tfe/pg-init
+cat > /etc/tfe/pg-init/01-init.sh << 'PGINIT'
+#!/bin/bash
+set -e
+
+# Create schemas and extensions in the main TFE database required per
+# https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/storage/connect-database/postgres
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c 'CREATE SCHEMA IF NOT EXISTS rails' \
+  -c 'CREATE SCHEMA IF NOT EXISTS registry' \
+  -c 'CREATE EXTENSION IF NOT EXISTS hstore WITH SCHEMA rails' \
+  -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA rails' \
+  -c 'CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA registry'
+
+# Create the separate Explorer database. TFE automatically creates the
+# 'explorer' schema within it on first start — no extensions needed.
+# https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/enable-explorer
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c "CREATE DATABASE ${explorer_database_name}"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c "GRANT ALL PRIVILEGES ON DATABASE ${explorer_database_name} TO \"$POSTGRES_USER\""
+PGINIT
+chmod +x /etc/tfe/pg-init/01-init.sh
+
 log "Pulling TFE image $TFE_VERSION..."
 docker pull "images.releases.hashicorp.com/hashicorp/terraform-enterprise:$TFE_VERSION"
 
@@ -107,6 +134,9 @@ services:
       POSTGRES_USER: "${database_user}"
       POSTGRES_PASSWORD: "${database_password}"
     volumes:
+      - type: bind
+        source: /etc/tfe/pg-init
+        target: /docker-entrypoint-initdb.d
       - type: volume
         source: postgres-data
         target: /var/lib/postgresql/data
@@ -140,22 +170,14 @@ services:
       TFE_TLS_CA_BUNDLE_FILE: "/etc/ssl/private/terraform-enterprise/bundle.pem"
       TFE_IACT_SUBNETS: "0.0.0.0/0" # allow IACT from any subnet during initial setup
       TFE_IACT_TOKEN: "${iact_token}"
-%{ if explorer_database_host != null ~}
       TFE_EXPLORER_DATABASE_HOST: "${explorer_database_host}"
       TFE_EXPLORER_DATABASE_NAME: "${explorer_database_name}"
-%{ if explorer_database_user != null ~}
       TFE_EXPLORER_DATABASE_USER: "${explorer_database_user}"
-%{ endif ~}
-%{ if explorer_database_password != null ~}
       TFE_EXPLORER_DATABASE_PASSWORD: "${explorer_database_password}"
-%{ endif ~}
-%{ if explorer_database_parameters != "" ~}
       TFE_EXPLORER_DATABASE_PARAMETERS: "${explorer_database_parameters}"
-%{ endif ~}
 %{ if explorer_database_passwordless_aws ~}
       TFE_EXPLORER_DATABASE_PASSWORDLESS_AWS_USE_INSTANCE_PROFILE: "true"
       TFE_EXPLORER_DATABASE_PASSWORDLESS_AWS_REGION: "${explorer_database_aws_region}"
-%{ endif ~}
 %{ endif ~}
     cap_add:
       - IPC_LOCK

@@ -6,7 +6,7 @@ variable "cluster_name" {
 variable "tfe_version" {
   # Terraform Enterprise image tag to deploy.
   type    = string
-  default = "v202505-1"
+  default = "2.0.1"
 }
 
 variable "tfe_license" {
@@ -203,9 +203,10 @@ variable "explorer_database_password" {
 }
 
 variable "explorer_database_parameters" {
-  # Additional PostgreSQL connection URI parameters, e.g. "sslmode=require".
+  # Additional PostgreSQL connection URI parameters.
+  # sslmode=disable is appropriate for the local compose sidecar.
   type    = string
-  default = ""
+  default = "sslmode=disable"
 }
 
 variable "explorer_database_passwordless_aws" {
