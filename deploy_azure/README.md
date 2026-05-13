@@ -1,6 +1,6 @@
 # tfe_deploy_azure
 
-Deploys Terraform Enterprise on a single Ubuntu 22.04 Azure VM using Docker Compose.
+Deploys Terraform Enterprise on a single Ubuntu 22.04 Azure VM using Docker Compose in external operational mode.
 
 ## Architecture
 
@@ -16,23 +16,22 @@ Internet ---------> |  Static Public IP           |
                     | Ubuntu 22.04 Azure VM       |
                     | Docker + Docker Compose     |
                     |                             |
+                    |  postgres:16 sidecar        |
                     |  TFE container (read-only)  |
-                    |  +-----------------------+  |
-                    |  | /var/lib/tfe (bind)   |  |  <-- Premium_LRS OS disk (application data)
-                    |  | /etc/tfe-tls (bind)   |  |  <-- self-signed or BYO TLS cert
-                    |  | cache volume (rw)     |  |  <-- Terraform binary cache
-                    |  +-----------------------+  |
-                    |                             |
+                    |  cache volume (rw)          |
                     +------+---------------+------+
                            |               |
-                  Premium_LRS OS disk   Azure Key Vault
-                  /var/lib/tfe          admin-token
+                   Premium_LRS OS disk   Azure Key Vault
+                                        admin-token
                                         org-token
+                           |
+                           +------ Azure Blob Storage
+                                   TFE object data
 ```
 
 ## Prerequisites
 
-- Azure subscription with permissions to create VMs, VNets, Key Vaults, and Managed Identities
+- Azure subscription with permissions to create VMs, VNets, Key Vaults, Managed Identities, Storage Accounts, and Role Assignments
 - Terraform Enterprise license
 - Azure credentials configured (via `az login` or `ARM_*` environment variables)
 
@@ -54,7 +53,7 @@ Internet ---------> |  Static Public IP           |
 | `tfe_license` | `string` | yes | — | TFE Enterprise license string. |
 | `admin_email` | `string` | yes | — | Email for the initial TFE admin user. |
 | `admin_password` | `string` | yes | — | Initial admin password (min 8 chars, mixed case + number + symbol recommended). |
-| `tfe_version` | `string` | no | `"v202505-1"` | TFE Docker image tag to deploy. |
+| `tfe_version` | `string` | no | `"2.0.1"` | TFE Docker image tag to deploy. |
 | `org_name` | `string` | no | `"hashicorp-demo"` | TFE organization created during bootstrap. |
 | `create_networking` | `bool` | no | `true` | Create a VNet/subnet. Set `false` when reusing an existing network. |
 | `vnet_id` | `string` | no | `null` | Existing VNet ID; used in outputs when `create_networking = false`. |
@@ -62,7 +61,7 @@ Internet ---------> |  Static Public IP           |
 | `vnet_address_space` | `string` | no | `"10.101.0.0/16"` | Address space for the new VNet. |
 | `subnet_address_prefix` | `string` | no | `"10.101.1.0/24"` | Address prefix for the new subnet. |
 | `vm_size` | `string` | no | `"Standard_D2s_v3"` | Azure VM size. |
-| `os_disk_size_gb` | `number` | no | `200` | OS disk size in GiB (holds TFE application data). |
+| `os_disk_size_gb` | `number` | no | `200` | OS disk size in GiB for the TFE VM. |
 | `admin_username` | `string` | no | `"tfeadmin"` | Local admin username on the VM. |
 | `ssh_public_key` | `string` | no | `null` | SSH public key for the admin user. When null, password auth is enabled with a random password. |
 | `allowed_ingress_cidrs` | `list(string)` | no | `["0.0.0.0/0"]` | CIDRs allowed to reach TFE on ports 80/443. |
@@ -71,6 +70,16 @@ Internet ---------> |  Static Public IP           |
 | `tls_cert_pem` | `string` | no | `null` | PEM-encoded TLS certificate. All three `tls_*` vars must be set together to skip self-signed generation. |
 | `tls_key_pem` | `string` | no | `null` | PEM-encoded TLS private key. |
 | `tls_ca_bundle_pem` | `string` | no | `null` | PEM-encoded CA bundle. Should include the signing CA so TFE and agent containers trust the certificate. |
+| `database_name` | `string` | no | `"tfe"` | PostgreSQL database name for the local postgres sidecar. |
+| `database_user` | `string` | no | `"tfe"` | PostgreSQL username for the local postgres sidecar. |
+| `database_parameters` | `string` | no | `"sslmode=disable"` | Additional PostgreSQL connection parameters for the main TFE database. |
+| `storage_container_name` | `string` | no | `null` | Override the auto-generated Azure Blob container name. |
+| `explorer_database_host` | `string` | no | `null` | Explorer PostgreSQL host. Defaults to the local postgres sidecar. |
+| `explorer_database_name` | `string` | no | `"tfe_explorer"` | Explorer PostgreSQL database name. |
+| `explorer_database_user` | `string` | no | `null` | Explorer PostgreSQL username. Defaults to `database_user`. |
+| `explorer_database_password` | `string` | no | `null` | Explorer PostgreSQL password. Defaults to the generated main DB password. |
+| `explorer_database_parameters` | `string` | no | `"sslmode=disable"` | Additional PostgreSQL connection parameters for Explorer. |
+| `explorer_database_passwordless_azure` | `bool` | no | `false` | Use Azure managed identity authentication for the Explorer database. |
 | `tags` | `map(string)` | no | `{}` | Extra Azure tags applied to all resources. |
 
 ## Outputs
@@ -81,6 +90,7 @@ Internet ---------> |  Static Public IP           |
 | `tfe_hostname` | Public IP (or hostname) of the TFE instance. |
 | `public_ip` | Static public IP address. |
 | `vm_id` | Azure VM resource ID. |
+| `vm_name` | Azure VM name. |
 | `resource_group_name` | Resource group containing all TFE resources. |
 | `key_vault_name` | Key Vault name used for bootstrap secrets. |
 | `key_vault_uri` | Key Vault URI. |
@@ -89,6 +99,9 @@ Internet ---------> |  Static Public IP           |
 | `retrieve_admin_token_cmd` | Ready-to-run `az keyvault` command to retrieve the admin token. |
 | `vnet_id` | Resolved VNet ID. |
 | `subnet_id` | Resolved subnet ID. |
+| `storage_account_name` | Azure Storage Account name used for TFE object storage. |
+| `database_name` | PostgreSQL database name for TFE. |
+| `database_user` | PostgreSQL user for TFE. |
 
 ## Bring your own networking
 
@@ -100,7 +113,18 @@ subnet_id         = "/subscriptions/.../subnets/my-subnet"
 vnet_id           = "/subscriptions/.../virtualNetworks/my-vnet"  # optional, for outputs only
 ```
 
-The subnet must have internet access (direct or via NAT gateway) so the VM can reach the TFE image registry and Azure IMDS/Key Vault endpoints. The module always creates the resource group, NSG, public IP, and Key Vault in `var.location` regardless of which networking path is used.
+The subnet must have internet access (direct or via NAT gateway) so the VM can reach the TFE image registry and Azure IMDS/Key Vault endpoints. The module always creates the resource group, NSG, public IP, Storage Account, and Key Vault in `var.location` regardless of which networking path is used.
+
+## External mode defaults
+
+The module deploys TFE in `external` operational mode with:
+
+- a local `postgres:16` sidecar for the main TFE and Explorer databases
+- Azure Blob Storage for object storage via managed identity
+- `sslmode=disable` for both database connections (appropriate for the local postgres sidecar)
+- a bootstrap PostgreSQL init script that creates required schemas/extensions and the `tfe_explorer` database
+
+Explorer is configured only with official `TFE_EXPLORER_DATABASE_*` environment variables.
 
 ## Bring your own certificate
 
@@ -110,7 +134,7 @@ By default the module generates a self-signed certificate on first boot using th
 tfe_hostname      = "tfe.example.com"  # hostname the cert was issued for
 tls_cert_pem      = file("tfe.crt")    # PEM certificate (leaf + intermediates)
 tls_key_pem       = file("tfe.key")    # PEM private key
-tls_ca_bundle_pem = file("ca.crt")    # PEM CA bundle (used by TFE agent containers)
+tls_ca_bundle_pem = file("ca.crt")     # PEM CA bundle (used by TFE agent containers)
 ```
 
 > All three `tls_*` variables must be set together — supplying only some of them has no effect and the module will fall back to a self-signed cert.
@@ -180,8 +204,8 @@ ERROR: TFE did not become healthy after 10 minutes
 ### 3. Check the container status
 
 ```bash
-# See if the container is running, restarting, or has exited
-docker ps -a --filter name=terraform-enterprise-tfe-1
+# See if the containers are running, restarting, or have exited
+docker ps -a --filter name=terraform-enterprise
 
 # Check the Docker Compose service status
 docker compose -f /etc/tfe/compose.yaml ps
@@ -213,17 +237,12 @@ A bad license typically produces one of these messages:
 docker exec terraform-enterprise-tfe-1 supervisorctl status
 
 # Hit the health endpoint (returns 200 when TFE is fully ready)
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/_health_check
+curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/v1/health/readiness
 ```
-
-### 6. Fixing a bad license
-
-1. Obtain a valid license string from your HashiCorp account.
-2. Update `tfe_license` in your `terraform.tfvars`.
-3. Re-run `terraform apply` — this replaces the VM and re-runs cloud-init with the corrected value.
 
 ## References
 
 - [Deploy TFE to Docker](https://developer.hashicorp.com/terraform/enterprise/deploy/docker)
 - [TFE configuration reference](https://developer.hashicorp.com/terraform/enterprise/deploy/reference/configuration)
+- [Enable TFE Explorer](https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/enable-explorer)
 - [Azure Key Vault RBAC](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide)

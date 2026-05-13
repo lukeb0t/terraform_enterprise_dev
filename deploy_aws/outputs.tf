@@ -52,3 +52,18 @@ output "subnet_id" {
   description = "Resolved subnet ID used for the deployment."
   value       = local.subnet_id_resolved
 }
+
+output "s3_bucket_name" {
+  description = "S3 bucket used for TFE object storage."
+  value       = aws_s3_bucket.tfe.id
+}
+
+output "database_name" {
+  description = "PostgreSQL database name used by TFE."
+  value       = var.database_name
+}
+
+output "database_user" {
+  description = "PostgreSQL username used by TFE."
+  value       = var.database_user
+}

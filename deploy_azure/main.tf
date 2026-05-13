@@ -9,6 +9,12 @@ locals {
   # Key Vault names must be globally unique, 3-24 chars, alphanumeric + hyphens.
   kv_name = "${substr(var.cluster_name, 0, 13)}-kv-${random_id.kv_suffix.hex}"
 
+  storage_container = var.storage_container_name != null ? var.storage_container_name : "${var.cluster_name}-tfe-data-${random_id.storage_suffix.hex}"
+
+  explorer_db_host     = var.explorer_database_host != null ? var.explorer_database_host : "postgres:5432"
+  explorer_db_user     = var.explorer_database_user != null ? var.explorer_database_user : var.database_user
+  explorer_db_password = var.explorer_database_password != null ? var.explorer_database_password : random_password.database.result
+
   common_tags = merge({
     Module      = "tfe_deploy"
     ClusterName = var.cluster_name
@@ -16,6 +22,11 @@ locals {
 }
 
 resource "random_password" "iact_token" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "database" {
   length  = 32
   special = false
 }
@@ -30,6 +41,10 @@ resource "random_password" "vm_admin" {
 # Short random suffix to make the Key Vault name globally unique.
 resource "random_id" "kv_suffix" {
   byte_length = 3
+}
+
+resource "random_id" "storage_suffix" {
+  byte_length = 4
 }
 
 # ── Resource Group ─────────────────────────────────────────────────────────────
@@ -177,6 +192,29 @@ resource "azurerm_key_vault_secret" "tls_bundle" {
   tags         = local.common_tags
 }
 
+# ── Object Storage ─────────────────────────────────────────────────────────────
+
+resource "azurerm_storage_account" "tfe" {
+  name                     = "${replace(var.cluster_name, "-", "")}tfe${random_id.storage_suffix.hex}"
+  resource_group_name      = azurerm_resource_group.tfe.name
+  location                 = azurerm_resource_group.tfe.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  tags                     = local.common_tags
+}
+
+resource "azurerm_storage_container" "tfe" {
+  name                  = local.storage_container
+  storage_account_id    = azurerm_storage_account.tfe.id
+  container_access_type = "private"
+}
+
+resource "azurerm_role_assignment" "tfe_storage" {
+  scope                = azurerm_storage_account.tfe.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.tfe.principal_id
+}
+
 # ── Public IP ──────────────────────────────────────────────────────────────────
 
 resource "azurerm_public_ip" "tfe" {
@@ -251,18 +289,30 @@ resource "azurerm_linux_virtual_machine" "tfe" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/templates/cloud-init.sh.tpl", {
-    tfe_hostname               = local.tfe_hostname
-    tfe_license                = var.tfe_license
-    tfe_version                = var.tfe_version
-    iact_token                 = random_password.iact_token.result
-    admin_email                = var.admin_email
-    admin_password             = var.admin_password
-    org_name                   = var.org_name
-    key_vault_name             = local.kv_name
-    managed_identity_client_id = azurerm_user_assigned_identity.tfe.client_id
-    tls_cert_kv_secret         = var.tls_cert_pem != null ? "tls-cert" : ""
-    tls_key_kv_secret          = var.tls_key_pem != null ? "tls-key" : ""
-    tls_bundle_kv_secret       = var.tls_ca_bundle_pem != null ? "tls-bundle" : ""
+    tfe_hostname                         = local.tfe_hostname
+    tfe_license                          = var.tfe_license
+    tfe_version                          = var.tfe_version
+    iact_token                           = random_password.iact_token.result
+    admin_email                          = var.admin_email
+    admin_password                       = var.admin_password
+    org_name                             = var.org_name
+    key_vault_name                       = local.kv_name
+    managed_identity_client_id           = azurerm_user_assigned_identity.tfe.client_id
+    tls_cert_kv_secret                   = var.tls_cert_pem != null ? "tls-cert" : ""
+    tls_key_kv_secret                    = var.tls_key_pem != null ? "tls-key" : ""
+    tls_bundle_kv_secret                 = var.tls_ca_bundle_pem != null ? "tls-bundle" : ""
+    database_name                        = var.database_name
+    database_user                        = var.database_user
+    database_password                    = random_password.database.result
+    database_parameters                  = var.database_parameters
+    storage_account_name                 = azurerm_storage_account.tfe.name
+    storage_container                    = local.storage_container
+    explorer_database_host               = local.explorer_db_host
+    explorer_database_name               = var.explorer_database_name
+    explorer_database_user               = local.explorer_db_user
+    explorer_database_password           = local.explorer_db_password
+    explorer_database_parameters         = var.explorer_database_parameters
+    explorer_database_passwordless_azure = var.explorer_database_passwordless_azure
   }))
 
   tags = merge(local.common_tags, {

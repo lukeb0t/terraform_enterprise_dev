@@ -3,9 +3,13 @@
 # Terraform Enterprise bootstrap for Ubuntu 22.04 on Azure.
 # Template vars: tfe_hostname, tfe_license, tfe_version, iact_token,
 # admin_email, admin_password, org_name, key_vault_name,
-# managed_identity_client_id,
-# tls_cert_kv_secret, tls_key_kv_secret, tls_bundle_kv_secret
-# (optional; empty string = generate self-signed certificate).
+# managed_identity_client_id, tls_cert_kv_secret, tls_key_kv_secret,
+# tls_bundle_kv_secret, database_name, database_user, database_password,
+# database_parameters, storage_account_name, storage_container,
+# explorer_database_host, explorer_database_name, explorer_database_user,
+# explorer_database_password, explorer_database_parameters,
+# explorer_database_passwordless_azure.
+# Explorer uses only official TFE_EXPLORER_DATABASE_* variables.
 # =============================================================================
 set -euo pipefail
 
@@ -143,8 +147,30 @@ chmod 644 /etc/tfe-tls/*.pem
 log "TLS certificate written to /etc/tfe-tls/"
 %{ endif ~}
 
-log "Creating TFE data directory..."
-mkdir -p /var/lib/tfe
+log "Writing PostgreSQL init script..."
+mkdir -p /etc/tfe/pg-init
+cat > /etc/tfe/pg-init/01-init.sh << 'PGINIT'
+#!/bin/bash
+set -e
+
+# Create schemas and extensions in the main TFE database required per
+# https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/storage/connect-database/postgres
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c 'CREATE SCHEMA IF NOT EXISTS rails' \
+  -c 'CREATE SCHEMA IF NOT EXISTS registry' \
+  -c 'CREATE EXTENSION IF NOT EXISTS hstore WITH SCHEMA rails' \
+  -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA rails' \
+  -c 'CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA registry'
+
+# Create the separate Explorer database. TFE automatically creates the
+# 'explorer' schema within it on first start — no extensions needed.
+# https://developer.hashicorp.com/terraform/enterprise/deploy/configuration/enable-explorer
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c "CREATE DATABASE ${explorer_database_name}"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -c "GRANT ALL PRIVILEGES ON DATABASE ${explorer_database_name} TO \"$POSTGRES_USER\""
+PGINIT
+chmod +x /etc/tfe/pg-init/01-init.sh
 
 log "Pulling TFE image $TFE_VERSION..."
 docker pull "images.releases.hashicorp.com/hashicorp/terraform-enterprise:$TFE_VERSION"
@@ -154,20 +180,60 @@ log "Writing Docker Compose configuration..."
 cat > /etc/tfe/compose.yaml << 'COMPOSEYML'
 name: terraform-enterprise
 services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${database_name}"
+      POSTGRES_USER: "${database_user}"
+      POSTGRES_PASSWORD: "${database_password}"
+    volumes:
+      - type: bind
+        source: /etc/tfe/pg-init
+        target: /docker-entrypoint-initdb.d
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${database_user} -d ${database_name}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   tfe:
     image: images.releases.hashicorp.com/hashicorp/terraform-enterprise:${tfe_version}
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       TFE_LICENSE: "${tfe_license}"
       TFE_HOSTNAME: "${tfe_hostname}"
-      TFE_OPERATIONAL_MODE: "disk"
-      TFE_DISK_PATH: "/var/lib/terraform-enterprise"
-      TFE_DISK_CACHE_VOLUME_NAME: "terraform-enterprise_terraform-enterprise-cache"
+      TFE_OPERATIONAL_MODE: "external"
       TFE_ENCRYPTION_PASSWORD: "${iact_token}"
+      TFE_DATABASE_HOST: "postgres:5432"
+      TFE_DATABASE_NAME: "${database_name}"
+      TFE_DATABASE_USER: "${database_user}"
+      TFE_DATABASE_PASSWORD: "${database_password}"
+      TFE_DATABASE_PARAMETERS: "${database_parameters}"
+      TFE_OBJECT_STORAGE_TYPE: "azure"
+      TFE_OBJECT_STORAGE_AZURE_ACCOUNT_NAME: "${storage_account_name}"
+      TFE_OBJECT_STORAGE_AZURE_CONTAINER: "${storage_container}"
+      TFE_OBJECT_STORAGE_AZURE_USE_MSI: "true"
+      TFE_OBJECT_STORAGE_AZURE_CLIENT_ID: "${managed_identity_client_id}"
       TFE_TLS_CERT_FILE: "/etc/ssl/private/terraform-enterprise/cert.pem"
       TFE_TLS_KEY_FILE: "/etc/ssl/private/terraform-enterprise/key.pem"
       TFE_TLS_CA_BUNDLE_FILE: "/etc/ssl/private/terraform-enterprise/bundle.pem"
       TFE_IACT_SUBNETS: "0.0.0.0/0"
       TFE_IACT_TOKEN: "${iact_token}"
+      TFE_EXPLORER_DATABASE_HOST: "${explorer_database_host}"
+      TFE_EXPLORER_DATABASE_NAME: "${explorer_database_name}"
+      TFE_EXPLORER_DATABASE_USER: "${explorer_database_user}"
+      TFE_EXPLORER_DATABASE_PASSWORD: "${explorer_database_password}"
+      TFE_EXPLORER_DATABASE_PARAMETERS: "${explorer_database_parameters}"
+%{ if explorer_database_passwordless_azure ~}
+      TFE_EXPLORER_DATABASE_PASSWORDLESS_AZURE_USE_MSI: "true"
+      TFE_EXPLORER_DATABASE_PASSWORDLESS_AZURE_CLIENT_ID: "${managed_identity_client_id}"
+%{ endif ~}
     cap_add:
       - IPC_LOCK
     read_only: true
@@ -185,14 +251,12 @@ services:
       - type: bind
         source: /etc/tfe-tls
         target: /etc/ssl/private/terraform-enterprise
-      - type: bind
-        source: /var/lib/tfe
-        target: /var/lib/terraform-enterprise
       - type: volume
         source: terraform-enterprise-cache
         target: /var/cache/tfe-task-worker/terraform
 
 volumes:
+  postgres-data:
   terraform-enterprise-cache:
     name: terraform-enterprise_terraform-enterprise-cache
 COMPOSEYML
@@ -215,7 +279,7 @@ done
 
 log "Waiting for TFE to become healthy (this may take up to 10 minutes)..."
 for i in $(seq 1 20); do
-  HTTP_CODE=$(curl -sk -o /dev/null -w "%%{http_code}" "https://$TFE_HOSTNAME/_health_check" 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -sk -o /dev/null -w "%%{http_code}" "https://$TFE_HOSTNAME/api/v1/health/readiness" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     log "TFE is healthy (attempt $i/20)"
     break

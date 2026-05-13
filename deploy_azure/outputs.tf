@@ -18,6 +18,11 @@ output "vm_id" {
   value       = azurerm_linux_virtual_machine.tfe.id
 }
 
+output "vm_name" {
+  description = "Azure VM name."
+  value       = azurerm_linux_virtual_machine.tfe.name
+}
+
 output "resource_group_name" {
   description = "Resource group containing all TFE resources."
   value       = azurerm_resource_group.tfe.name
@@ -56,4 +61,19 @@ output "vnet_id" {
 output "subnet_id" {
   description = "Resolved subnet ID used for the deployment."
   value       = local.subnet_id_resolved
+}
+
+output "storage_account_name" {
+  description = "Azure Storage Account name used for TFE object storage."
+  value       = azurerm_storage_account.tfe.name
+}
+
+output "database_name" {
+  description = "PostgreSQL database name for TFE."
+  value       = var.database_name
+}
+
+output "database_user" {
+  description = "PostgreSQL user for TFE."
+  value       = var.database_user
 }

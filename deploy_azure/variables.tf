@@ -11,7 +11,7 @@ variable "location" {
 variable "tfe_version" {
   # Terraform Enterprise image tag to deploy.
   type    = string
-  default = "v202505-1"
+  default = "2.0.1"
 }
 
 variable "tfe_license" {
@@ -79,7 +79,7 @@ variable "vm_size" {
 }
 
 variable "os_disk_size_gb" {
-  # OS disk size in GiB for TFE application data.
+  # OS disk size in GiB for the TFE VM.
   type    = number
   default = 200
 }
@@ -143,4 +143,76 @@ variable "tags" {
   # Additional tags applied to all Azure resources.
   type    = map(string)
   default = {}
+}
+
+# ── External mode: database ────────────────────────────────────────────────────
+
+variable "database_name" {
+  # Name of the PostgreSQL database created for TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_user" {
+  # PostgreSQL username used by TFE.
+  type    = string
+  default = "tfe"
+}
+
+variable "database_parameters" {
+  # Additional PostgreSQL connection URI parameters.
+  # sslmode=disable is appropriate for the local compose sidecar.
+  type    = string
+  default = "sslmode=disable"
+}
+
+# ── External mode: object storage ─────────────────────────────────────────────
+
+variable "storage_container_name" {
+  # Override the auto-generated Azure Blob container name.
+  # Defaults to "<cluster_name>-tfe-data-<random>".
+  type    = string
+  default = null
+}
+
+# ── TFE Explorer ───────────────────────────────────────────────────────────────
+
+variable "explorer_database_host" {
+  # PostgreSQL host for the Explorer database (HOST or HOST:PORT).
+  # Defaults to the local postgres sidecar when null.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_name" {
+  # Name of the PostgreSQL database used to store Explorer data.
+  type    = string
+  default = "tfe_explorer"
+}
+
+variable "explorer_database_user" {
+  # PostgreSQL username for the Explorer database.
+  type    = string
+  default = null
+}
+
+variable "explorer_database_password" {
+  # PostgreSQL password for the Explorer database.
+  # Not required when using Azure passwordless authentication.
+  type      = string
+  default   = null
+  sensitive = true
+}
+
+variable "explorer_database_parameters" {
+  # Additional PostgreSQL connection URI parameters.
+  # sslmode=disable is appropriate for the local compose sidecar.
+  type    = string
+  default = "sslmode=disable"
+}
+
+variable "explorer_database_passwordless_azure" {
+  # Use Azure managed identity auth for the Explorer database.
+  type    = bool
+  default = false
 }
